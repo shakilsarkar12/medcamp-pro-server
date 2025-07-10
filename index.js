@@ -22,7 +22,23 @@ async function run() {
   try {
     const database = client.db("MedCampProDB");
     const campsCollection = database.collection("camps");
+    const usersCollection = database.collection("users");
 
+    app.post("/user", async (req, res) => {
+      const cursor = req.body;
+      const exitingUser = await usersCollection.findOne({
+        email: cursor.email,
+      });
+      if (exitingUser) {
+        res.send(exitingUser);
+      } else {
+        const result = await usersCollection.insertOne(cursor);
+        res.send(result);
+      }
+    });
+
+
+    // all camps get api
     app.post("/camps", async (req, res) => {
       const cursor = req.body;
       const result = await campsCollection.insertOne(cursor);
