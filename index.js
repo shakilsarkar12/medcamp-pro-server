@@ -4,7 +4,12 @@ const cors = require("cors");
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 const { MongoClient, ServerApiVersion } = require("mongodb");
@@ -24,7 +29,40 @@ async function run() {
     const campsCollection = database.collection("camps");
     const usersCollection = database.collection("users");
 
-    app.post("/user", async (req, res) => {
+    // user Get APi
+    app.get("/users", async (req, res) => {
+      const cursor = usersCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    // logedin user data gat API
+    app.get("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await usersCollection.findOne({ email });
+
+      if (user) {
+        res.send(user);
+      } else {
+        res.status(404).send({ message: "User not found" });
+      }
+    });
+
+    // lastSignInTime update API
+    app.patch("/users/last-login/:email", async (req, res) => {
+      const email = req.params.email;
+      const lastSignInTime = req.body.lastLogin;
+
+      const result = await usersCollection.updateOne(
+        { email },
+        { $set: { lastSignInTime } }
+      );
+
+      res.send(result);
+    });
+
+    // user Post ApI
+    app.post("/users", async (req, res) => {
       const cursor = req.body;
       const exitingUser = await usersCollection.findOne({
         email: cursor.email,
@@ -37,16 +75,12 @@ async function run() {
       }
     });
 
-
     // all camps get api
     app.post("/camps", async (req, res) => {
       const cursor = req.body;
       const result = await campsCollection.insertOne(cursor);
       res.send(result);
     });
-
-
-
   } finally {
   }
 }
