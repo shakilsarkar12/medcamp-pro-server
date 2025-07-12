@@ -6,7 +6,7 @@ const port = process.env.PORT || 3000;
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: ["http://localhost:5173", "https://medcamp-pro.web.app"],
     credentials: true,
   })
 );
@@ -67,6 +67,9 @@ async function run() {
       const exitingUser = await usersCollection.findOne({
         email: cursor.email,
       });
+
+      cursor.role = "participant";
+
       if (exitingUser) {
         res.send(exitingUser);
       } else {
@@ -76,16 +79,22 @@ async function run() {
     });
 
     // all camps get api
-    app.post("/camps", async (req, res) => {
+    app.get("/camps", async (req, res) => {
+      const result = await campsCollection.find().toArray();
+      res.send(result);
+    });
+
+    // camp post API
+    app.post("/camp", async (req, res) => {
       const cursor = req.body;
       const result = await campsCollection.insertOne(cursor);
       res.send(result);
     });
+
   } finally {
   }
 }
 run().catch(console.dir);
-
 
 app.get("/", (req, res) => {
   res.send("medCamp pro server is running");
