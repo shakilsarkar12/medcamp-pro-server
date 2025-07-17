@@ -12,7 +12,7 @@ app.use(
 );
 app.use(express.json());
 
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = process.env.DB_URI;
 
 const client = new MongoClient(uri, {
@@ -81,6 +81,14 @@ async function run() {
     // all camps get api
     app.get("/camps", async (req, res) => {
       const result = await campsCollection.find().toArray();
+      res.send(result);
+    });
+
+    // single camp get API
+    app.get("/camp-details/:id", async (req, res) => {
+      const Id = req.params.id;
+      const campId = { _id: new ObjectId(Id) }
+      const result = await campsCollection.findOne(campId)
       res.send(result);
     });
 
