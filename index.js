@@ -87,9 +87,31 @@ async function run() {
     // single camp get API
     app.get("/camp-details/:id", async (req, res) => {
       const Id = req.params.id;
-      const campId = { _id: new ObjectId(Id) }
-      const result = await campsCollection.findOne(campId)
+      const campId = { _id: new ObjectId(Id) };
+      const result = await campsCollection.findOne(campId);
       res.send(result);
+    });
+
+    // camps by organizer email get API
+    app.get("/camps/count", async (req, res) => {
+      try {
+        const email = req.query.email;
+
+        if (!email) {
+          return res
+            .status(400)
+            .json({ error: "Email query param is required" });
+        }
+
+        const count = await campsCollection.countDocuments({
+          createdBy: email,
+        });
+
+        res.json({ count });
+      } catch (err) {
+        console.error("Error getting camp count:", err);
+        res.status(500).json({ error: "Internal Server Error" });
+      }
     });
 
     // camp post API
@@ -98,7 +120,6 @@ async function run() {
       const result = await campsCollection.insertOne(cursor);
       res.send(result);
     });
-
   } finally {
   }
 }
