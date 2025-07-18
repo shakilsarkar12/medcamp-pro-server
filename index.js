@@ -78,6 +78,18 @@ async function run() {
       }
     });
 
+    // user role update API
+    app.put("/organizers/:email", async (req, res) => {
+      const email = req.params.email;
+      const update = req.body;
+      const result = await usersCollection.updateOne(
+        { email },
+        { $set: update },
+        { upsert: true }
+      );
+      res.send(result);
+    });
+
     // all camps get api
     app.get("/camps", async (req, res) => {
       const result = await campsCollection.find().toArray();
