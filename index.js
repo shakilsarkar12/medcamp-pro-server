@@ -28,6 +28,7 @@ async function run() {
     const database = client.db("MedCampProDB");
     const campsCollection = database.collection("camps");
     const usersCollection = database.collection("users");
+    const registrationsCollection = database.collection("registrations");
 
     // user Get APi
     app.get("/users", async (req, res) => {
@@ -79,8 +80,8 @@ async function run() {
     });
 
     // user role update API
-    app.put("/organizers/:email", async (req, res) => {
-      const email = req.params.email;
+    app.put("/user", async (req, res) => {
+      const email = req.query.email;
       const update = req.body;
       const result = await usersCollection.updateOne(
         { email },
@@ -132,6 +133,40 @@ async function run() {
       const result = await campsCollection.insertOne(cursor);
       res.send(result);
     });
+
+app.post("/camp-registrations", async (req, res) => {
+  try {
+    const registration = req.body;
+    if (
+      !registration ||
+      !registration.campId ||
+      !registration.participantEmail
+    ) {
+      return res.status(400).json({ error: "Invalid registration data" });
+    }
+
+    // Save registration info
+    const result = await registrationsCollection.insertOne({
+      ...registration,
+      createdAt: new Date(),
+    });
+
+    // Update participant count in the camp
+    await campsCollection.updateOne(
+      { _id: new ObjectId(registration.campId) },
+      { $inc: { participantCount: 1 } }
+    );
+
+    res
+      .status(201)
+      .json({ success: true, message: "Registered successfully", result });
+  } catch (error) {
+    console.error("Registration error:", error);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+});
+
+
   } finally {
   }
 }
