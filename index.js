@@ -127,6 +127,36 @@ async function run() {
       }
     });
 
+app.get("/camps/organizer", async (req, res) => {
+  try {
+    const email = req.query.email;
+    const page = parseInt(req.query.page) || 1; // default to page 1
+    const limit = parseInt(req.query.limit) || 10; // default to 5 camps per page
+    const skip = (page - 1) * limit;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email query param is required" });
+    }
+
+    const query = { createdBy: email };
+
+    const [totalCamps, camps] = await Promise.all([
+      campsCollection.countDocuments(query),
+      campsCollection.find(query).skip(skip).limit(limit).toArray(),
+    ]);
+
+    res.json({
+      totalCamps,
+      page,
+      totalPages: Math.ceil(totalCamps / limit),
+      camps,
+    });
+  } catch (err) {
+    console.error("Error getting camps by organizer:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
     // camp post API
     app.post("/camp", async (req, res) => {
       const cursor = req.body;
