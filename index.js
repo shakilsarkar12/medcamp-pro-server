@@ -134,6 +134,35 @@ async function run() {
       res.send(result);
     });
 
+    // participant count increment API
+app.patch("/camps/increment-participants", async (req, res) => {
+  try {
+    const { campId, email } = req.body;
+
+    if (!campId || !email) {
+      return res.status(400).json({ message: "campId and email are required" });
+    }
+
+    const result = await campsCollection.updateOne(
+      { _id: new ObjectId(campId) },
+      {
+        $addToSet: { participantEmails: email }, 
+      }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res
+        .status(404)
+        .json({ message: "Camp not found or already updated" });
+    }
+
+    res.send({ success: true, message: "Participant registered successfully" });
+  } catch (error) {
+    console.error("Error updating camp participants:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
 app.post("/camp-registrations", async (req, res) => {
   try {
     const registration = req.body;
@@ -148,6 +177,7 @@ app.post("/camp-registrations", async (req, res) => {
     // Save registration info
     const result = await registrationsCollection.insertOne({
       ...registration,
+      pyamentStatus: "pending",
       createdAt: new Date(),
     });
 
