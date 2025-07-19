@@ -127,35 +127,37 @@ async function run() {
       }
     });
 
-app.get("/camps/organizer", async (req, res) => {
-  try {
-    const email = req.query.email;
-    const page = parseInt(req.query.page) || 1; // default to page 1
-    const limit = parseInt(req.query.limit) || 10; // default to 5 camps per page
-    const skip = (page - 1) * limit;
+    app.get("/camps/organizer", async (req, res) => {
+      try {
+        const email = req.query.email;
+        const page = parseInt(req.query.page) || 1; // default to page 1
+        const limit = parseInt(req.query.limit) || 10; // default to 5 camps per page
+        const skip = (page - 1) * limit;
 
-    if (!email) {
-      return res.status(400).json({ error: "Email query param is required" });
-    }
+        if (!email) {
+          return res
+            .status(400)
+            .json({ error: "Email query param is required" });
+        }
 
-    const query = { createdBy: email };
+        const query = { createdBy: email };
 
-    const [totalCamps, camps] = await Promise.all([
-      campsCollection.countDocuments(query),
-      campsCollection.find(query).skip(skip).limit(limit).toArray(),
-    ]);
+        const [totalCamps, camps] = await Promise.all([
+          campsCollection.countDocuments(query),
+          campsCollection.find(query).skip(skip).limit(limit).toArray(),
+        ]);
 
-    res.json({
-      totalCamps,
-      page,
-      totalPages: Math.ceil(totalCamps / limit),
-      camps,
+        res.json({
+          totalCamps,
+          page,
+          totalPages: Math.ceil(totalCamps / limit),
+          camps,
+        });
+      } catch (err) {
+        console.error("Error getting camps by organizer:", err);
+        res.status(500).json({ error: "Internal Server Error" });
+      }
     });
-  } catch (err) {
-    console.error("Error getting camps by organizer:", err);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
 
     // camp post API
     app.post("/camp", async (req, res) => {
@@ -164,69 +166,91 @@ app.get("/camps/organizer", async (req, res) => {
       res.send(result);
     });
 
-    // participant count increment API
-app.patch("/camps/increment-participants", async (req, res) => {
-  try {
-    const { campId, email } = req.body;
+    // DELETE a camp
+    app.delete("/delete-camp/:campId", async (req, res) => {
+      const { campId } = req.params;
 
-    if (!campId || !email) {
-      return res.status(400).json({ message: "campId and email are required" });
-    }
+      try {
+        const result = await campsCollection.deleteOne({ _id: new ObjectId(campId) });
 
-    const result = await campsCollection.updateOne(
-      { _id: new ObjectId(campId) },
-      {
-        $addToSet: { participantEmails: email }, 
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ message: "Camp not found" });
+        }
+
+        res.json({ message: "Camp deleted successfully" });
+      } catch (err) {
+        res.status(500).json({ error: "Failed to delete camp" });
       }
-    );
-
-    if (result.modifiedCount === 0) {
-      return res
-        .status(404)
-        .json({ message: "Camp not found or already updated" });
-    }
-
-    res.send({ success: true, message: "Participant registered successfully" });
-  } catch (error) {
-    console.error("Error updating camp participants:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/camp-registrations", async (req, res) => {
-  try {
-    const registration = req.body;
-    if (
-      !registration ||
-      !registration.campId ||
-      !registration.participantEmail
-    ) {
-      return res.status(400).json({ error: "Invalid registration data" });
-    }
-
-    // Save registration info
-    const result = await registrationsCollection.insertOne({
-      ...registration,
-      pyamentStatus: "pending",
-      createdAt: new Date(),
     });
 
-    // Update participant count in the camp
-    await campsCollection.updateOne(
-      { _id: new ObjectId(registration.campId) },
-      { $inc: { participantCount: 1 } }
-    );
+    // participant count increment API
+    app.patch("/camps/increment-participants", async (req, res) => {
+      try {
+        const { campId, email } = req.body;
 
-    res
-      .status(201)
-      .json({ success: true, message: "Registered successfully", result });
-  } catch (error) {
-    console.error("Registration error:", error);
-    res.status(500).json({ success: false, error: "Server error" });
-  }
-});
+        if (!campId || !email) {
+          return res
+            .status(400)
+            .json({ message: "campId and email are required" });
+        }
 
+        const result = await campsCollection.updateOne(
+          { _id: new ObjectId(campId) },
+          {
+            $addToSet: { participantEmails: email },
+          }
+        );
 
+        if (result.modifiedCount === 0) {
+          return res
+            .status(404)
+            .json({ message: "Camp not found or already updated" });
+        }
+
+        res.send({
+          success: true,
+          message: "Participant registered successfully",
+        });
+      } catch (error) {
+        console.error("Error updating camp participants:", error);
+        res
+          .status(500)
+          .json({ success: false, error: "Internal server error" });
+      }
+    });
+
+    app.post("/camp-registrations", async (req, res) => {
+      try {
+        const registration = req.body;
+        if (
+          !registration ||
+          !registration.campId ||
+          !registration.participantEmail
+        ) {
+          return res.status(400).json({ error: "Invalid registration data" });
+        }
+
+        // Save registration info
+        const result = await registrationsCollection.insertOne({
+          ...registration,
+          pyamentStatus: "pending",
+          createdAt: new Date(),
+        });
+
+        // Update participant count in the camp
+        await campsCollection.updateOne(
+          { _id: new ObjectId(registration.campId) },
+          { $inc: { participantCount: 1 } }
+        );
+
+        res
+          .status(201)
+          .json({ success: true, message: "Registered successfully", result });
+      } catch (error) {
+        console.error("Registration error:", error);
+        res.status(500).json({ success: false, error: "Server error" });
+      }
+    });
   } finally {
   }
 }
