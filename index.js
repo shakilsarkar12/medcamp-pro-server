@@ -106,17 +106,34 @@ app.get("/camp-details/:id", async (req, res) => {
 // camps by organizer email get API
 app.get("/camps/count", async (req, res) => {
   try {
-    const email = req.query.email;
+    const { email, role } = req.query;
 
     if (!email) {
       return res.status(400).json({ error: "Email query param is required" });
     }
 
-    const count = await campsCollection.countDocuments({
-      createdBy: email,
-    });
-
-    res.json({ count });
+    if (role === "organizer") {
+      const count = await campsCollection.countDocuments({ createdBy: email });
+      return res.json({ count });
+    } else if (role === "participant") {
+      const totalParticipant = await registrationsCollection.countDocuments({
+        participantEmail: email,
+      });
+      const totalConfirmationStatus =
+        await registrationsCollection.countDocuments({
+          participantEmail: email,
+          confirmationStatus: "Confirmed",
+        });
+      const totalPending = totalParticipant - totalConfirmationStatus;
+      const count = {
+        totalParticipant,
+        totalConfirmationStatus,
+        totalPending,
+      }
+      return res.send(count);
+    } else {
+      return res.status(400).json({ error: "Invalid role" });
+    }
   } catch (err) {
     console.error("Error getting camp count:", err);
     res.status(500).json({ error: "Internal Server Error" });
@@ -292,7 +309,6 @@ app.post("/camp-registrations", async (req, res) => {
     console.error("Registration error:", error);
     res.status(500).json({ success: false, error: "Server error" });
   }
-
 });
 
 // Delete registration API
@@ -346,9 +362,7 @@ app.get("/participant-analytics", async (req, res) => {
 
     const query = { participantEmail: email };
 
-    const registrations = await registrationsCollection
-      .find(query)
-      .toArray();
+    const registrations = await registrationsCollection.find(query).toArray();
 
     res.json(registrations);
   } catch (error) {
@@ -356,8 +370,6 @@ app.get("/participant-analytics", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
-
 
 app.get("/", (req, res) => {
   res.send("medCamp pro server is running");
