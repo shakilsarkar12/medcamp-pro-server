@@ -171,7 +171,9 @@ async function run() {
       const { campId } = req.params;
 
       try {
-        const result = await campsCollection.deleteOne({ _id: new ObjectId(campId) });
+        const result = await campsCollection.deleteOne({
+          _id: new ObjectId(campId),
+        });
 
         if (result.deletedCount === 0) {
           return res.status(404).json({ message: "Camp not found" });
@@ -219,6 +221,32 @@ async function run() {
       }
     });
 
+    app.get("/camp-registrations", async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const total = await registrationsCollection.countDocuments();
+        const registrations = await registrationsCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        res.json({
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+          registrations,
+        });
+      } catch (err) {
+        console.error("Error fetching paginated registrations:", err);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    });
+
     app.post("/camp-registrations", async (req, res) => {
       try {
         const registration = req.body;
@@ -233,7 +261,7 @@ async function run() {
         // Save registration info
         const result = await registrationsCollection.insertOne({
           ...registration,
-          pyamentStatus: "pending",
+          pyamentStatus: "Unpaid",
           createdAt: new Date(),
         });
 
