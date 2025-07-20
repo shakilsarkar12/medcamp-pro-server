@@ -335,6 +335,29 @@ app.delete("/delete-registrations", async (req, res) => {
   }
 });
 
+// GET participant analytics data for chart (campName & fees)
+app.get("/participant-analytics", async (req, res) => {
+  try {
+    const email = req.query.email;
+
+    if (!email) {
+      return res.status(400).json({ error: "Participant email is required" });
+    }
+
+    const query = { participantEmail: email };
+
+    const registrations = await registrationsCollection
+      .find(query)
+      .toArray();
+
+    res.json(registrations);
+  } catch (error) {
+    console.error("Error fetching analytics data:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+
 
 app.get("/", (req, res) => {
   res.send("medCamp pro server is running");
