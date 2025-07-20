@@ -221,6 +221,7 @@ async function run() {
       }
     });
 
+    // camp registrations get API with pagination
     app.get("/camp-registrations", async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
@@ -247,6 +248,29 @@ async function run() {
       }
     });
 
+    // camp registration confirmation API
+    app.patch("/camp-registrations/:id/confirm", async (req, res) => {
+      const { id } = req.params;
+      try {
+        const result = await registrationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { confirmationStatus: "Confirmed" } }
+        );
+
+        if (result.modifiedCount > 0) {
+          res.json({ message: "Registration confirmed" });
+        } else {
+          res
+            .status(404)
+            .json({ error: "Registration not found or already confirmed" });
+        }
+      } catch (err) {
+        console.error("Error confirming registration:", err);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    });
+
+    // camp registration post API
     app.post("/camp-registrations", async (req, res) => {
       try {
         const registration = req.body;
