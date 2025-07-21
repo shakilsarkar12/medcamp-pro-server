@@ -263,12 +263,16 @@ app.get("/camp-registrations", async (req, res) => {
 app.patch("/camp-registrations/:id/confirm", async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await registrationsCollection.updateOne(
+    const regUpdate = await registrationsCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: { confirmationStatus: "Confirmed" } }
     );
+    const payUpdate = await paymentsCollection.updateOne(
+      { registrationId: id },
+      { $set: { confirmationStatus: "Confirmed" } }
+    );
 
-    if (result.modifiedCount > 0) {
+    if (regUpdate.modifiedCount > 0 && payUpdate.modifiedCount > 0) {
       res.json({ message: "Registration confirmed" });
     } else {
       res
@@ -496,6 +500,36 @@ app.patch("/registrations/:id", async (req, res) => {
     res
       .status(500)
       .send({ success: false, message: "Failed to update registration" });
+  }
+});
+
+// Get payment history by participant email with Pagination
+app.get("/payment-history", async (req, res) => {
+  try {
+    const { email } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = { participantEmail: email };
+
+    const total = await paymentsCollection.countDocuments(query);
+    const payments = await paymentsCollection
+      .find(query)
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    res.json({
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      payments,
+    });
+  } catch (err) {
+    console.error("Error fetching paginated payment history:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
