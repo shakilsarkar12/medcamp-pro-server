@@ -31,6 +31,7 @@ const campsCollection = database.collection("camps");
 const usersCollection = database.collection("users");
 const registrationsCollection = database.collection("registrations");
 const paymentsCollection = database.collection("payments");
+const feedbackCollection = database.collection("feedback");
 
 // user Get APi
 app.get("/users", async (req, res) => {
@@ -530,6 +531,24 @@ app.get("/payment-history", async (req, res) => {
   } catch (err) {
     console.error("Error fetching paginated payment history:", err);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Feedback collection
+app.post("/feedback", async (req, res) => {
+  try {
+    const feedback = req.body;
+    feedback.createdAt = new Date().toISOString();
+
+    const result = await feedbackCollection.insertOne(feedback);
+    res.json({
+      success: true,
+      message: "Feedback submitted",
+      insertedId: result.insertedId,
+    });
+  } catch (error) {
+    console.error("Error submitting feedback:", error);
+    res.status(500).json({ error: "Failed to submit feedback" });
   }
 });
 
