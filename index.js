@@ -351,6 +351,43 @@ app.delete("/delete-registrations", async (req, res) => {
   }
 });
 
+// Get participant registrations by email
+app.get("/participant-registrations", async (req, res) => {
+  try {
+    const email = req.query.email;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    if (!email) {
+      return res.status(400).send({ message: "Email is required" });
+    }
+
+    const skip = (page - 1) * limit;
+
+    const query = { participantEmail: email };
+    const total = await registrationsCollection.countDocuments(query);
+
+    const registrations = await registrationsCollection
+      .find(query)
+      .skip(skip)
+      .limit(limit)
+      .sort({ registeredAt: -1 })
+      .toArray();
+
+    res.send({
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      registrations,
+    });
+  } catch (error) {
+    res.status(500).send({ message: "Server error", error: error.message });
+  }
+});
+
+
+
 // GET participant analytics data for chart (campName & fees)
 app.get("/participant-analytics", async (req, res) => {
   try {
