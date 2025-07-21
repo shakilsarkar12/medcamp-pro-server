@@ -182,6 +182,22 @@ app.post("/camp", async (req, res) => {
   res.send(result);
 });
 
+// Update camp API
+app.patch("/update-camp/:id", async (req, res) => {
+  const id = req.params.id;
+  const updatedCamp = req.body;
+  try {
+    const result = await campsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updatedCamp }
+    );
+    res.send(result);
+  } catch (err) {
+    res.status(500).send({ error: "Failed to update camp" });
+  }
+});
+
+
 // DELETE a camp
 app.delete("/delete-camp/:campId", async (req, res) => {
   const { campId } = req.params;
