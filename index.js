@@ -12,6 +12,9 @@ app.use(
 );
 app.use(express.json());
 
+// Required at top
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = process.env.DB_URI;
 
@@ -27,6 +30,7 @@ const database = client.db("MedCampProDB");
 const campsCollection = database.collection("camps");
 const usersCollection = database.collection("users");
 const registrationsCollection = database.collection("registrations");
+const paymentsCollection = database.collection("payments");
 
 // user Get APi
 app.get("/users", async (req, res) => {
@@ -311,6 +315,27 @@ app.post("/camp-registrations", async (req, res) => {
   }
 });
 
+// Get pyament info from registrations API
+app.get("/registrations/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const registration = await registrationsCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!registration) {
+      return res.status(404).json({ error: "Registration not found" });
+    }
+
+    res.send(registration);
+  } catch (err) {
+    console.error("Error fetching registration:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+
 // Delete registration API
 app.delete("/delete-registrations", async (req, res) => {
   try {
@@ -386,8 +411,6 @@ app.get("/participant-registrations", async (req, res) => {
   }
 });
 
-
-
 // GET participant analytics data for chart (campName & fees)
 app.get("/participant-analytics", async (req, res) => {
   try {
@@ -405,6 +428,74 @@ app.get("/participant-analytics", async (req, res) => {
   } catch (error) {
     console.error("Error fetching analytics data:", error);
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Route: POST /create-payment-intent
+app.post("/create-payment-intent", async (req, res) => {
+  const { amount } = req.body;
+
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ error: "Invalid amount" });
+  }
+
+  try {
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100), // convert to cents
+      currency: "usd",
+      payment_method_types: ["card"],
+    });
+
+    res.send({ clientSecret: paymentIntent.client_secret });
+  } catch (error) {
+    console.error("Stripe Error:", error);
+    res.status(500).json({ error: "Failed to create payment intent" });
+  }
+});
+
+app.post("/payments", async (req, res) => {
+  const payment = req.body;
+
+  try {
+    const result = await paymentsCollection.insertOne(payment);
+    res.send({ success: true, insertedId: result.insertedId });
+  } catch (error) {
+    console.error("Insert payment error:", error);
+    res.status(500).send({ success: false, message: "Failed to save payment" });
+  }
+});
+
+// Update registration payment status API
+app.patch("/registrations/:id", async (req, res) => {
+  const registrationId = req.params.id;
+
+  const updateDoc = {
+    $set: {
+      pyamentStatus: "Paid",
+    },
+  };
+
+  try {
+    const result = await registrationsCollection.updateOne(
+      { _id: new ObjectId(registrationId) },
+      updateDoc
+    );
+
+    if (result.modifiedCount > 0) {
+      res.send({ success: true });
+    } else {
+      res
+        .status(404)
+        .send({
+          success: false,
+          message: "Registration not found or not updated",
+        });
+    }
+  } catch (error) {
+    console.error("Update registration error:", error);
+    res
+      .status(500)
+      .send({ success: false, message: "Failed to update registration" });
   }
 });
 
