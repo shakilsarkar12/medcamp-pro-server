@@ -72,8 +72,6 @@ app.post("/users", async (req, res) => {
     email: cursor.email,
   });
 
-  cursor.role = "participant";
-
   if (exitingUser) {
     res.send(exitingUser);
   } else {
@@ -144,7 +142,7 @@ app.get("/camps/count", async (req, res) => {
         totalParticipant,
         totalConfirmationStatus,
         totalPending,
-      }
+      };
       return res.send(count);
     } else {
       return res.status(400).json({ error: "Invalid role" });
@@ -206,7 +204,6 @@ app.patch("/update-camp/:id", async (req, res) => {
     res.status(500).send({ error: "Failed to update camp" });
   }
 });
-
 
 // DELETE a camp
 app.delete("/delete-camp/:campId", async (req, res) => {
@@ -366,7 +363,6 @@ app.get("/registrations/:id", async (req, res) => {
   }
 });
 
-
 // Delete registration API
 app.delete("/delete-registrations", async (req, res) => {
   try {
@@ -515,12 +511,10 @@ app.patch("/registrations/:id", async (req, res) => {
     if (result.modifiedCount > 0) {
       res.send({ success: true });
     } else {
-      res
-        .status(404)
-        .send({
-          success: false,
-          message: "Registration not found or not updated",
-        });
+      res.status(404).send({
+        success: false,
+        message: "Registration not found or not updated",
+      });
     }
   } catch (error) {
     console.error("Update registration error:", error);
@@ -582,6 +576,56 @@ app.post("/feedback", async (req, res) => {
     res.status(500).json({ error: "Failed to submit feedback" });
   }
 });
+
+
+app.get("/dashboard/participant-overview", async (req, res) => {
+  const email = req.query.email;
+
+  try {
+    if (!email) {
+      return res.status(400).send({ error: "Email is required" });
+    }
+
+    const totalRegisterCamps = await registrationsCollection.countDocuments({
+      participantEmail: email,
+    });
+
+    const registered = await registrationsCollection
+      .find({ participantEmail: email })
+      .sort({ createdAt: -1 })
+      .limit(3)
+      .toArray();
+
+    const feedbacks = await feedbackCollection
+      .find({ participantEmail: email })
+      .toArray();
+
+    const payments = await paymentsCollection
+      .find({ participantEmail: email })
+      .toArray();
+
+    const today = new Date().toISOString().split("T")[0];
+
+    const upcomingCamps = await campsCollection
+      .find({
+        participantEmails: email,
+        scheduledDate: { $gt: today },
+      })
+      .toArray();
+
+    res.send({
+      totalRegisterCamps,
+      registered,
+      feedbacks,
+      payments,
+      upcomingCamps,
+    });
+  } catch (err) {
+    console.error("Dashboard Error:", err);
+    res.status(500).send({ error: "Failed to fetch dashboard stats" });
+  }
+});
+
 
 app.get("/", (req, res) => {
   res.send("medCamp pro server is running");
