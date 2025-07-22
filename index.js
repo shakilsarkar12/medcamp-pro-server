@@ -100,6 +100,16 @@ app.get("/camps", async (req, res) => {
   res.send(result);
 });
 
+//  populaar camps get API
+app.get("/popular-camps", async (req, res) => {
+  const camps = await campsCollection
+    .find({ status: "active" })
+    .sort({ participantCount: -1 })
+    .limit(8)
+    .toArray();
+  res.send(camps);
+});
+
 // single camp get API
 app.get("/camp-details/:id", async (req, res) => {
   const Id = req.params.id;
