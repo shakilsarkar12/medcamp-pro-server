@@ -560,11 +560,16 @@ app.get("/payment-history", async (req, res) => {
   }
 });
 
+app.get("/feedbacks", async (req, res) => {
+  const feedbacks = await feedbackCollection.find().limit(12).toArray();
+  res.send(feedbacks);
+});
+
 // Feedback collection
 app.post("/feedback", async (req, res) => {
   try {
     const feedback = req.body;
-    feedback.createdAt = new Date().toISOString();
+    feedback.submittedAt = new Date().toISOString();
 
     const result = await feedbackCollection.insertOne(feedback);
     res.json({
