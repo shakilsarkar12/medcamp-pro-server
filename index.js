@@ -32,6 +32,7 @@ const usersCollection = database.collection("users");
 const registrationsCollection = database.collection("registrations");
 const paymentsCollection = database.collection("payments");
 const feedbackCollection = database.collection("feedback");
+const contactMessagesCollection = database.collection("contactMessages");
 
 // user Get APi
 app.get("/users", async (req, res) => {
@@ -771,7 +772,7 @@ app.get("/dashboard/organizer-overview", async (req, res) => {
 
     const recentActivity = [...recentRegistrations, ...recentPayments].sort(
       () => Math.random() - 0.5
-    ); 
+    );
 
     // Count camps joined per participant
     const participantMap = {};
@@ -804,6 +805,26 @@ app.get("/dashboard/organizer-overview", async (req, res) => {
   }
 });
 
+// Example Express API endpoint for contact messages
+app.post("/contact-messages", async (req, res) => {
+  try {
+    const contactData = req.body;
+    if (!contactData) {
+      return res
+        .status(400)
+        .json({ success: false, error: "All fields are required." });
+    }
+
+    contactData.createdAt = new Date().toISOString();
+
+    // Save to MongoDB collection (replace with your collection name)
+    const result = await contactMessagesCollection.insertOne(contactData);
+
+    res.json({ success: true, insertedId: result.insertedId });
+  } catch {
+    res.status(500).json({ success: false });
+  }
+});
 
 app.get("/", (req, res) => {
   res.send("medCamp pro server is running");
