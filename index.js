@@ -95,8 +95,53 @@ app.put("/user", async (req, res) => {
 
 // all camps get api
 app.get("/camps", async (req, res) => {
-  const result = await campsCollection.find().toArray();
-  res.send(result);
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 6;
+    const search = req.query.search || "";
+    const sort = req.query.sort || "";
+    const date = req.query.date || "";
+
+    const skip = (page - 1) * limit;
+    const query = {};
+
+    if (search) {
+      query.$or = [
+        { campName: { $regex: search, $options: "i" } },
+        { location: { $regex: search, $options: "i" } },
+        { doctor: { $regex: search, $options: "i" } },
+      ];
+    }
+    if (date) {
+      query.scheduledDate = date;
+    }
+
+    // In your /camps API
+    let sortObj = {};
+    if (sort === "most-registered") sortObj = { participantCount: -1 };
+    else if (sort === "fees-low-high") sortObj = { fees: 1 };
+    else if (sort === "fees-high-low") sortObj = { fees: -1 };
+    else if (sort === "alphabetical") sortObj = { campName: 1 };
+
+    const total = await campsCollection.countDocuments(query);
+    const camps = await campsCollection
+      .find(query)
+      .sort(sortObj)
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    res.json({
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      camps,
+    });
+  } catch (err) {
+    console.error("Error fetching camps:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 //  populaar camps get API
@@ -628,78 +673,6 @@ app.get("/dashboard/participant-overview", async (req, res) => {
 });
 
 // Dashboard organizer overview API
-// app.get("/dashboard/organizer-overview", async (req, res) => {
-//   try {
-//     const email = req.query.email;
-//     if (!email) return res.status(400).send({ message: "Email is required" });
-
-//     const camps = await campsCollection
-//       .find({ createdBy: email })
-//       .toArray();
-//     const campIds = camps.map((camp) => camp._id);
-
-//     // Get all registrations for this organizer's camps
-//     const registrations = await registrationsCollection
-//       .find({ campId: { $in: campIds.map((id) => id.toString()) } })
-//       .toArray();
-
-//     const now = new Date();
-//     const upcomingCamps = camps.filter(
-//       (camp) => new Date(camp.scheduledDate) > now
-//     );
-
-// // Total revenue assuming `amount` is stored in each camp
-
-// // Get all payments for this organizer's camps
-// const payments = await paymentsCollection
-//   .find({ campId: { $in: campIds.map((id) => id.toString()) } })
-//   .toArray();
-
-// // Calculate total revenue from payments
-// const totalRevenue = payments.reduce((sum, payment) => {
-//   return sum + parseFloat(payment.amount || 0);
-// }, 0);
-
-//     // Count participants per camp
-//     const campStats = camps.map((camp) => {
-//       const participantCount = registrations.filter(
-//         (reg) => reg.campId === camp._id.toString()
-//       ).length;
-//       // Calculate revenue for this camp from payments
-//       const campPayments = payments.filter(
-//         (payment) => payment.campId === camp._id.toString()
-//       );
-//       const revenue = campPayments.reduce(
-//         (sum, payment) => sum + parseFloat(payment.amount || 0),
-//         0
-//       );
-
-//       return {
-//         _id: camp._id,
-//         campName: camp.campName,
-//         participantCount,
-//         revenue,
-//       };
-//     });
-
-//     // Sort by participant count and return top 5
-//     const topCamps = campStats
-//       .sort((a, b) => b.participantCount - a.participantCount)
-//       .slice(0, 5);
-
-//     res.send({
-//       totalOrganizedCamps: camps.length,
-//       upcomingCamps: upcomingCamps.length,
-//       totalParticipants: registrations.length,
-//       totalRevenue,
-//       topCamps,
-//     });
-//   } catch (err) {
-//     console.error("Error fetching organizer stats:", err);
-//     res.status(500).send({ message: "Internal Server Error" });
-//   }
-// });
-
 app.get("/dashboard/organizer-overview", async (req, res) => {
   try {
     const email = req.query.email;
