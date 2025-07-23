@@ -577,7 +577,7 @@ app.post("/feedback", async (req, res) => {
   }
 });
 
-
+// Dashboard participant overview API
 app.get("/dashboard/participant-overview", async (req, res) => {
   const email = req.query.email;
 
@@ -623,6 +623,184 @@ app.get("/dashboard/participant-overview", async (req, res) => {
   } catch (err) {
     console.error("Dashboard Error:", err);
     res.status(500).send({ error: "Failed to fetch dashboard stats" });
+  }
+});
+
+// Dashboard organizer overview API
+// app.get("/dashboard/organizer-overview", async (req, res) => {
+//   try {
+//     const email = req.query.email;
+//     if (!email) return res.status(400).send({ message: "Email is required" });
+
+//     const camps = await campsCollection
+//       .find({ createdBy: email })
+//       .toArray();
+//     const campIds = camps.map((camp) => camp._id);
+
+//     // Get all registrations for this organizer's camps
+//     const registrations = await registrationsCollection
+//       .find({ campId: { $in: campIds.map((id) => id.toString()) } })
+//       .toArray();
+
+//     const now = new Date();
+//     const upcomingCamps = camps.filter(
+//       (camp) => new Date(camp.scheduledDate) > now
+//     );
+
+// // Total revenue assuming `amount` is stored in each camp
+
+// // Get all payments for this organizer's camps
+// const payments = await paymentsCollection
+//   .find({ campId: { $in: campIds.map((id) => id.toString()) } })
+//   .toArray();
+
+// // Calculate total revenue from payments
+// const totalRevenue = payments.reduce((sum, payment) => {
+//   return sum + parseFloat(payment.amount || 0);
+// }, 0);
+
+//     // Count participants per camp
+//     const campStats = camps.map((camp) => {
+//       const participantCount = registrations.filter(
+//         (reg) => reg.campId === camp._id.toString()
+//       ).length;
+//       // Calculate revenue for this camp from payments
+//       const campPayments = payments.filter(
+//         (payment) => payment.campId === camp._id.toString()
+//       );
+//       const revenue = campPayments.reduce(
+//         (sum, payment) => sum + parseFloat(payment.amount || 0),
+//         0
+//       );
+
+//       return {
+//         _id: camp._id,
+//         campName: camp.campName,
+//         participantCount,
+//         revenue,
+//       };
+//     });
+
+//     // Sort by participant count and return top 5
+//     const topCamps = campStats
+//       .sort((a, b) => b.participantCount - a.participantCount)
+//       .slice(0, 5);
+
+//     res.send({
+//       totalOrganizedCamps: camps.length,
+//       upcomingCamps: upcomingCamps.length,
+//       totalParticipants: registrations.length,
+//       totalRevenue,
+//       topCamps,
+//     });
+//   } catch (err) {
+//     console.error("Error fetching organizer stats:", err);
+//     res.status(500).send({ message: "Internal Server Error" });
+//   }
+// });
+
+app.get("/dashboard/organizer-overview", async (req, res) => {
+  try {
+    const email = req.query.email;
+    if (!email) return res.status(400).send({ message: "Email is required" });
+
+    const camps = await campsCollection.find({ createdBy: email }).toArray();
+    const campIds = camps.map((camp) => camp._id);
+
+    // Get all registrations for this organizer's camps
+    const registrations = await registrationsCollection
+      .find({ campId: { $in: campIds.map((id) => id.toString()) } })
+      .toArray();
+
+    const now = new Date();
+    const upcomingCamps = camps.filter(
+      (camp) => new Date(camp.scheduledDate) > now
+    );
+
+    // Get all payments for this organizer's camps
+    const payments = await paymentsCollection
+      .find({ campId: { $in: campIds.map((id) => id.toString()) } })
+      .toArray();
+
+    // Calculate total revenue from payments
+    const totalRevenue = payments.reduce((sum, payment) => {
+      return sum + parseFloat(payment.amount || 0);
+    }, 0);
+
+    // Count participants per camp
+    const campStats = camps.map((camp) => {
+      const participantCount = registrations.filter(
+        (reg) => reg.campId === camp._id.toString()
+      ).length;
+      // Calculate revenue for this camp from payments
+      const campPayments = payments.filter(
+        (payment) => payment.campId === camp._id.toString()
+      );
+      const revenue = campPayments.reduce(
+        (sum, payment) => sum + parseFloat(payment.amount || 0),
+        0
+      );
+
+      return {
+        _id: camp._id,
+        campName: camp.campName,
+        participantCount,
+        revenue,
+      };
+    });
+
+    // Sort by participant count and return top 5
+    const topCamps = campStats
+      .sort((a, b) => b.participantCount - a.participantCount)
+      .slice(0, 5);
+
+    // --- Recent Activity Section ---
+    // Example: last 10 registrations and payments
+    const recentRegistrations = registrations
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 5)
+      .map(
+        (reg) =>
+          `New registration: ${reg.participantName} joined ${reg.campName}`
+      );
+
+    const recentPayments = payments
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 5)
+      .map((pay) => `Payment received: $${pay.amount} for ${pay.campName}`);
+
+    const recentActivity = [...recentRegistrations, ...recentPayments].sort(
+      () => Math.random() - 0.5
+    ); 
+
+    // Count camps joined per participant
+    const participantMap = {};
+    registrations.forEach((reg) => {
+      if (!participantMap[reg.participantEmail]) {
+        participantMap[reg.participantEmail] = {
+          name: reg.participantName,
+          email: reg.participantEmail,
+          campsJoined: 0,
+        };
+      }
+      participantMap[reg.participantEmail].campsJoined += 1;
+    });
+    const topParticipants = Object.values(participantMap)
+      .sort((a, b) => b.campsJoined - a.campsJoined)
+      .slice(0, 5);
+
+    res.send({
+      totalOrganizedCamps: camps.length,
+      upcomingCamps: upcomingCamps.length,
+      totalParticipants: registrations.length,
+      totalRevenue,
+      topCamps,
+      recentActivity,
+      topParticipants,
+    });
+  } catch (err) {
+    console.error("Error fetching organizer stats:", err);
+    res.status(500).send({ message: "Internal Server Error" });
   }
 });
 
