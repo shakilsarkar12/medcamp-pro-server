@@ -3,6 +3,69 @@ const express = require("express");
 const cors = require("cors");
 const app = express();
 const port = process.env.PORT || 3000;
+const admin = require("firebase-admin");
+const serviceAccount = require("./firebase-admin.json");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
+// MongoDB connection
+const uri = process.env.DB_URI;
+const client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
+});
+const database = client.db("MedCampProDB");
+const campsCollection = database.collection("camps");
+const usersCollection = database.collection("users");
+const registrationsCollection = database.collection("registrations");
+const paymentsCollection = database.collection("payments");
+const feedbackCollection = database.collection("feedback");
+const contactMessagesCollection = database.collection("contactMessages");
+
+// Firebase Admin initialize
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+}
+
+// Middleware to verify Firebase token and attach user role
+const verifyFirebaseToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  console.log(authHeader);
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const token = authHeader.split(" ")[1];
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    req.user = decodedToken;
+
+    next();
+  } catch (err) {
+    return res.status(403).json({ error: "Invalid or expired token" });
+  }
+};
+
+// Middleware to check user role
+const checkRole = (role) => async (req, res, next) => {
+  const email = req.query.email;
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  try {
+    const user = await usersCollection.findOne({ email });
+    if (user && user.role === role) {
+      return next();
+    }
+    return res.status(403).json({ error: "Forbidden: Insufficient role" });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
 
 app.use(
   cors({
@@ -15,31 +78,17 @@ app.use(express.json());
 // Required at top
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const uri = process.env.DB_URI;
-
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
-});
-
-const database = client.db("MedCampProDB");
-const campsCollection = database.collection("camps");
-const usersCollection = database.collection("users");
-const registrationsCollection = database.collection("registrations");
-const paymentsCollection = database.collection("payments");
-const feedbackCollection = database.collection("feedback");
-const contactMessagesCollection = database.collection("contactMessages");
-
 // user Get APi
-app.get("/users", async (req, res) => {
-  const cursor = usersCollection.find();
-  const result = await cursor.toArray();
-  res.send(result);
-});
+app.get(
+  "/users",
+  verifyFirebaseToken,
+  checkRole("organizer"),
+  async (req, res) => {
+    const cursor = usersCollection.find();
+    const result = await cursor.toArray();
+    res.send(result);
+  }
+);
 
 // logedin user data gat API
 app.get("/users/:email", async (req, res) => {
@@ -82,7 +131,7 @@ app.post("/users", async (req, res) => {
 });
 
 // user role update API
-app.put("/user", async (req, res) => {
+app.put("/user", verifyFirebaseToken, async (req, res) => {
   const email = req.query.email;
   const update = req.body;
   const result = await usersCollection.updateOne(
@@ -163,147 +212,179 @@ app.get("/camp-details/:id", async (req, res) => {
 });
 
 // camps by organizer email get API
-app.get("/camps/count", async (req, res) => {
-  try {
-    const { email, role } = req.query;
+app.get(
+  "/camps/count",
+  verifyFirebaseToken,
+  async (req, res) => {
+    try {
+      const { email, role } = req.query;
 
-    if (!email) {
-      return res.status(400).json({ error: "Email query param is required" });
-    }
+      if (!email) {
+        return res.status(400).json({ error: "Email query param is required" });
+      }
 
-    if (role === "organizer") {
-      const count = await campsCollection.countDocuments({ createdBy: email });
-      return res.json({ count });
-    } else if (role === "participant") {
-      const totalParticipant = await registrationsCollection.countDocuments({
-        participantEmail: email,
-      });
-      const totalConfirmationStatus =
-        await registrationsCollection.countDocuments({
-          participantEmail: email,
-          confirmationStatus: "Confirmed",
+      if (role === "organizer") {
+        const count = await campsCollection.countDocuments({
+          createdBy: email,
         });
-      const totalPending = totalParticipant - totalConfirmationStatus;
-      const count = {
-        totalParticipant,
-        totalConfirmationStatus,
-        totalPending,
-      };
-      return res.send(count);
-    } else {
-      return res.status(400).json({ error: "Invalid role" });
+        return res.json({ count });
+      } else if (role === "participant") {
+        const totalParticipant = await registrationsCollection.countDocuments({
+          participantEmail: email,
+        });
+        const totalConfirmationStatus =
+          await registrationsCollection.countDocuments({
+            participantEmail: email,
+            confirmationStatus: "Confirmed",
+          });
+        const totalPending = totalParticipant - totalConfirmationStatus;
+        const count = {
+          totalParticipant,
+          totalConfirmationStatus,
+          totalPending,
+        };
+        return res.send(count);
+      } else {
+        return res.status(400).json({ error: "Invalid role" });
+      }
+    } catch (err) {
+      console.error("Error getting camp count:", err);
+      res.status(500).json({ error: "Internal Server Error" });
     }
-  } catch (err) {
-    console.error("Error getting camp count:", err);
-    res.status(500).json({ error: "Internal Server Error" });
   }
-});
+);
 
-app.get("/camps/organizer", async (req, res) => {
-  try {
-    const email = req.query.email;
-    const page = parseInt(req.query.page) || 1; // default to page 1
-    const limit = parseInt(req.query.limit) || 10; // default to 5 camps per page
-    const skip = (page - 1) * limit;
+app.get(
+  "/camps/organizer",
+  verifyFirebaseToken,
+  checkRole("organizer"),
+  async (req, res) => {
+    try {
+      const email = req.query.email;
+      const page = parseInt(req.query.page) || 1; // default to page 1
+      const limit = parseInt(req.query.limit) || 10; // default to 5 camps per page
+      const skip = (page - 1) * limit;
 
-    if (!email) {
-      return res.status(400).json({ error: "Email query param is required" });
+      if (!email) {
+        return res.status(400).json({ error: "Email query param is required" });
+      }
+
+      const query = { createdBy: email };
+
+      const [totalCamps, camps] = await Promise.all([
+        campsCollection.countDocuments(query),
+        campsCollection.find(query).skip(skip).limit(limit).toArray(),
+      ]);
+
+      res.json({
+        totalCamps,
+        page,
+        totalPages: Math.ceil(totalCamps / limit),
+        camps,
+      });
+    } catch (err) {
+      console.error("Error getting camps by organizer:", err);
+      res.status(500).json({ error: "Internal Server Error" });
     }
-
-    const query = { createdBy: email };
-
-    const [totalCamps, camps] = await Promise.all([
-      campsCollection.countDocuments(query),
-      campsCollection.find(query).skip(skip).limit(limit).toArray(),
-    ]);
-
-    res.json({
-      totalCamps,
-      page,
-      totalPages: Math.ceil(totalCamps / limit),
-      camps,
-    });
-  } catch (err) {
-    console.error("Error getting camps by organizer:", err);
-    res.status(500).json({ error: "Internal Server Error" });
   }
-});
+);
 
 // camp post API
-app.post("/camp", async (req, res) => {
-  const cursor = req.body;
-  const result = await campsCollection.insertOne(cursor);
-  res.send(result);
-});
+app.post(
+  "/camp",
+  verifyFirebaseToken,
+  checkRole("organizer"),
+  async (req, res) => {
+    const cursor = req.body;
+    const result = await campsCollection.insertOne(cursor);
+    res.send(result);
+  }
+);
 
 // Update camp API
-app.patch("/update-camp/:id", async (req, res) => {
-  const id = req.params.id;
-  const updatedCamp = req.body;
-  try {
-    const result = await campsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updatedCamp }
-    );
-    res.send(result);
-  } catch (err) {
-    res.status(500).send({ error: "Failed to update camp" });
+app.patch(
+  "/update-camp/:id",
+  verifyFirebaseToken,
+  checkRole("organizer"),
+  async (req, res) => {
+    const id = req.params.id;
+    const updatedCamp = req.body;
+    try {
+      const result = await campsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updatedCamp }
+      );
+      res.send(result);
+    } catch (err) {
+      res.status(500).send({ error: "Failed to update camp" });
+    }
   }
-});
+);
 
 // DELETE a camp
-app.delete("/delete-camp/:campId", async (req, res) => {
-  const { campId } = req.params;
+app.delete(
+  "/delete-camp/:campId",
+  verifyFirebaseToken,
+  checkRole("organizer"),
+  async (req, res) => {
+    const { campId } = req.params;
 
-  try {
-    const result = await campsCollection.deleteOne({
-      _id: new ObjectId(campId),
-    });
+    try {
+      const result = await campsCollection.deleteOne({
+        _id: new ObjectId(campId),
+      });
 
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ message: "Camp not found" });
+      if (result.deletedCount === 0) {
+        return res.status(404).json({ message: "Camp not found" });
+      }
+
+      res.json({ message: "Camp deleted successfully" });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete camp" });
     }
-
-    res.json({ message: "Camp deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to delete camp" });
   }
-});
+);
 
 // participant count increment API
-app.patch("/camps/increment-participants", async (req, res) => {
-  try {
-    const { campId, email } = req.body;
+app.patch(
+  "/camps/increment-participants",
+  verifyFirebaseToken,
+  async (req, res) => {
+    try {
+      const { campId, email } = req.body;
 
-    if (!campId || !email) {
-      return res.status(400).json({ message: "campId and email are required" });
-    }
-
-    const result = await campsCollection.updateOne(
-      { _id: new ObjectId(campId) },
-      {
-        $addToSet: { participantEmails: email },
+      if (!campId || !email) {
+        return res
+          .status(400)
+          .json({ message: "campId and email are required" });
       }
-    );
 
-    if (result.modifiedCount === 0) {
-      return res
-        .status(404)
-        .json({ message: "Camp not found or already updated" });
+      const result = await campsCollection.updateOne(
+        { _id: new ObjectId(campId) },
+        {
+          $addToSet: { participantEmails: email },
+        }
+      );
+
+      if (result.modifiedCount === 0) {
+        return res
+          .status(404)
+          .json({ message: "Camp not found or already updated" });
+      }
+
+      res.send({
+        success: true,
+        message: "Participant registered successfully",
+      });
+    } catch (error) {
+      console.error("Error updating camp participants:", error);
+      res.status(500).json({ success: false, error: "Internal server error" });
     }
-
-    res.send({
-      success: true,
-      message: "Participant registered successfully",
-    });
-  } catch (error) {
-    console.error("Error updating camp participants:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
   }
-});
+);
 
 // camp registrations get API with pagination
-app.get("/camp-registrations", async (req, res) => {
+app.get("/camp-registrations", verifyFirebaseToken, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -330,30 +411,35 @@ app.get("/camp-registrations", async (req, res) => {
 });
 
 // camp registration confirmation API
-app.patch("/camp-registrations/:id/confirm", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const regUpdate = await registrationsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { confirmationStatus: "Confirmed" } }
-    );
-    const payUpdate = await paymentsCollection.updateOne(
-      { registrationId: id },
-      { $set: { confirmationStatus: "Confirmed" } }
-    );
+app.patch(
+  "/camp-registrations/:id/confirm",
+  verifyFirebaseToken,
+  checkRole("organizer"),
+  async (req, res) => {
+    const { id } = req.params;
+    try {
+      const regUpdate = await registrationsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { confirmationStatus: "Confirmed" } }
+      );
+      const payUpdate = await paymentsCollection.updateOne(
+        { registrationId: id },
+        { $set: { confirmationStatus: "Confirmed" } }
+      );
 
-    if (regUpdate.modifiedCount > 0 && payUpdate.modifiedCount > 0) {
-      res.json({ message: "Registration confirmed" });
-    } else {
-      res
-        .status(404)
-        .json({ error: "Registration not found or already confirmed" });
+      if (regUpdate.modifiedCount > 0 && payUpdate.modifiedCount > 0) {
+        res.json({ message: "Registration confirmed" });
+      } else {
+        res
+          .status(404)
+          .json({ error: "Registration not found or already confirmed" });
+      }
+    } catch (err) {
+      console.error("Error confirming registration:", err);
+      res.status(500).json({ error: "Internal server error" });
     }
-  } catch (err) {
-    console.error("Error confirming registration:", err);
-    res.status(500).json({ error: "Internal server error" });
   }
-});
+);
 
 // camp registration post API
 app.post("/camp-registrations", async (req, res) => {
@@ -390,7 +476,7 @@ app.post("/camp-registrations", async (req, res) => {
 });
 
 // Get pyament info from registrations API
-app.get("/registrations/:id", async (req, res) => {
+app.get("/registrations/:id", verifyFirebaseToken, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -410,47 +496,56 @@ app.get("/registrations/:id", async (req, res) => {
 });
 
 // Delete registration API
-app.delete("/delete-registrations", async (req, res) => {
-  try {
-    const { id, campID, email } = req.query;
+app.delete(
+  "/delete-registrations",
+  verifyFirebaseToken,
+  checkRole("organizer"),
+  async (req, res) => {
+    try {
+      const { id, campID, participantEmail } = req.query;
 
-    if (!id || !campID || !email) {
-      return res
-        .status(400)
-        .json({ error: "Missing required query parameters" });
-    }
-
-    // Delete from registrations collection
-    const regResult = await registrationsCollection.deleteOne({
-      _id: new ObjectId(id),
-    });
-
-    if (regResult.deletedCount === 0) {
-      return res.status(404).json({ error: "Registration not found" });
-    }
-
-    // Update the camp: remove participantEmail and decrement participantCount
-    const updateResult = await campsCollection.updateOne(
-      { _id: new ObjectId(campID) },
-      {
-        $pull: { participantEmails: email },
-        $inc: { participantCount: -1 },
+      if (!id || !campID || !participantEmail) {
+        return res
+          .status(400)
+          .json({ error: "Missing required query parameters" });
       }
-    );
 
-    if (updateResult.modifiedCount === 0) {
-      return res.status(404).json({ error: "Camp not found or not updated" });
+      // Delete from registrations collection
+      const regResult = await registrationsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      
+
+      if (regResult.deletedCount === 0) {
+        return res.status(404).json({ error: "Registration not found" });
+      }
+
+      // Update the camp: remove participantEmail and decrement participantCount
+      const updateResult = await campsCollection.updateOne(
+        { _id: new ObjectId(campID) },
+        {
+          $pull: { participantEmails: participantEmail },
+          $inc: { participantCount: -1 },
+        }
+      );
+
+      if (updateResult.modifiedCount === 0) {
+        return res.status(404).json({ error: "Camp not found or not updated" });
+      }
+
+      res.json({
+        message: "Registration deleted and camp updated successfully",
+      });
+    } catch (err) {
+      console.error("Error deleting registration and updating camp:", err);
+      res.status(500).json({ error: "Internal Server Error" });
     }
-
-    res.json({ message: "Registration deleted and camp updated successfully" });
-  } catch (err) {
-    console.error("Error deleting registration and updating camp:", err);
-    res.status(500).json({ error: "Internal Server Error" });
   }
-});
+);
 
 // Get participant registrations by email
-app.get("/participant-registrations", async (req, res) => {
+app.get("/participant-registrations", verifyFirebaseToken, async (req, res) => {
   try {
     const email = req.query.email;
     const page = parseInt(req.query.page) || 1;
@@ -485,7 +580,7 @@ app.get("/participant-registrations", async (req, res) => {
 });
 
 // GET participant analytics data for chart (campName & fees)
-app.get("/participant-analytics", async (req, res) => {
+app.get("/participant-analytics", verifyFirebaseToken, async (req, res) => {
   try {
     const email = req.query.email;
 
@@ -505,7 +600,7 @@ app.get("/participant-analytics", async (req, res) => {
 });
 
 // Route: POST /create-payment-intent
-app.post("/create-payment-intent", async (req, res) => {
+app.post("/create-payment-intent", verifyFirebaseToken, async (req, res) => {
   const { amount } = req.body;
 
   if (!amount || amount <= 0) {
@@ -526,7 +621,7 @@ app.post("/create-payment-intent", async (req, res) => {
   }
 });
 
-app.post("/payments", async (req, res) => {
+app.post("/payments", verifyFirebaseToken, async (req, res) => {
   const payment = req.body;
 
   try {
@@ -539,7 +634,7 @@ app.post("/payments", async (req, res) => {
 });
 
 // Update registration payment status API
-app.patch("/registrations/:id", async (req, res) => {
+app.patch("/registrations/:id", verifyFirebaseToken, async (req, res) => {
   const registrationId = req.params.id;
 
   const updateDoc = {
@@ -606,7 +701,7 @@ app.get("/feedbacks", async (req, res) => {
 });
 
 // Feedback collection
-app.post("/feedback", async (req, res) => {
+app.post("/feedback", verifyFirebaseToken, async (req, res) => {
   try {
     const feedback = req.body;
     feedback.submittedAt = new Date().toISOString();
@@ -624,159 +719,168 @@ app.post("/feedback", async (req, res) => {
 });
 
 // Dashboard participant overview API
-app.get("/dashboard/participant-overview", async (req, res) => {
-  const email = req.query.email;
+app.get(
+  "/dashboard/participant-overview",
+  verifyFirebaseToken,
+  async (req, res) => {
+    const email = req.query.email;
 
-  try {
-    if (!email) {
-      return res.status(400).send({ error: "Email is required" });
+    try {
+      if (!email) {
+        return res.status(400).send({ error: "Email is required" });
+      }
+
+      const totalRegisterCamps = await registrationsCollection.countDocuments({
+        participantEmail: email,
+      });
+
+      const registered = await registrationsCollection
+        .find({ participantEmail: email })
+        .sort({ createdAt: -1 })
+        .limit(3)
+        .toArray();
+
+      const feedbacks = await feedbackCollection
+        .find({ participantEmail: email })
+        .toArray();
+
+      const payments = await paymentsCollection
+        .find({ participantEmail: email })
+        .toArray();
+
+      const today = new Date().toISOString().split("T")[0];
+
+      const upcomingCamps = await campsCollection
+        .find({
+          participantEmails: email,
+          scheduledDate: { $gt: today },
+        })
+        .toArray();
+
+      res.send({
+        totalRegisterCamps,
+        registered,
+        feedbacks,
+        payments,
+        upcomingCamps,
+      });
+    } catch (err) {
+      console.error("Dashboard Error:", err);
+      res.status(500).send({ error: "Failed to fetch dashboard stats" });
     }
-
-    const totalRegisterCamps = await registrationsCollection.countDocuments({
-      participantEmail: email,
-    });
-
-    const registered = await registrationsCollection
-      .find({ participantEmail: email })
-      .sort({ createdAt: -1 })
-      .limit(3)
-      .toArray();
-
-    const feedbacks = await feedbackCollection
-      .find({ participantEmail: email })
-      .toArray();
-
-    const payments = await paymentsCollection
-      .find({ participantEmail: email })
-      .toArray();
-
-    const today = new Date().toISOString().split("T")[0];
-
-    const upcomingCamps = await campsCollection
-      .find({
-        participantEmails: email,
-        scheduledDate: { $gt: today },
-      })
-      .toArray();
-
-    res.send({
-      totalRegisterCamps,
-      registered,
-      feedbacks,
-      payments,
-      upcomingCamps,
-    });
-  } catch (err) {
-    console.error("Dashboard Error:", err);
-    res.status(500).send({ error: "Failed to fetch dashboard stats" });
   }
-});
+);
 
 // Dashboard organizer overview API
-app.get("/dashboard/organizer-overview", async (req, res) => {
-  try {
-    const email = req.query.email;
-    if (!email) return res.status(400).send({ message: "Email is required" });
+app.get(
+  "/dashboard/organizer-overview",
+  verifyFirebaseToken,
+  checkRole("organizer"),
+  async (req, res) => {
+    try {
+      const email = req.query.email;
+      if (!email) return res.status(400).send({ message: "Email is required" });
 
-    const camps = await campsCollection.find({ createdBy: email }).toArray();
-    const campIds = camps.map((camp) => camp._id);
+      const camps = await campsCollection.find({ createdBy: email }).toArray();
+      const campIds = camps.map((camp) => camp._id);
 
-    // Get all registrations for this organizer's camps
-    const registrations = await registrationsCollection
-      .find({ campId: { $in: campIds.map((id) => id.toString()) } })
-      .toArray();
+      // Get all registrations for this organizer's camps
+      const registrations = await registrationsCollection
+        .find({ campId: { $in: campIds.map((id) => id.toString()) } })
+        .toArray();
 
-    const now = new Date();
-    const upcomingCamps = camps.filter(
-      (camp) => new Date(camp.scheduledDate) > now
-    );
-
-    // Get all payments for this organizer's camps
-    const payments = await paymentsCollection
-      .find({ campId: { $in: campIds.map((id) => id.toString()) } })
-      .toArray();
-
-    // Calculate total revenue from payments
-    const totalRevenue = payments.reduce((sum, payment) => {
-      return sum + parseFloat(payment.amount || 0);
-    }, 0);
-
-    // Count participants per camp
-    const campStats = camps.map((camp) => {
-      const participantCount = registrations.filter(
-        (reg) => reg.campId === camp._id.toString()
-      ).length;
-      // Calculate revenue for this camp from payments
-      const campPayments = payments.filter(
-        (payment) => payment.campId === camp._id.toString()
-      );
-      const revenue = campPayments.reduce(
-        (sum, payment) => sum + parseFloat(payment.amount || 0),
-        0
+      const now = new Date();
+      const upcomingCamps = camps.filter(
+        (camp) => new Date(camp.scheduledDate) > now
       );
 
-      return {
-        _id: camp._id,
-        campName: camp.campName,
-        participantCount,
-        revenue,
-      };
-    });
+      // Get all payments for this organizer's camps
+      const payments = await paymentsCollection
+        .find({ campId: { $in: campIds.map((id) => id.toString()) } })
+        .toArray();
 
-    // Sort by participant count and return top 5
-    const topCamps = campStats
-      .sort((a, b) => b.participantCount - a.participantCount)
-      .slice(0, 5);
+      // Calculate total revenue from payments
+      const totalRevenue = payments.reduce((sum, payment) => {
+        return sum + parseFloat(payment.amount || 0);
+      }, 0);
 
-    // --- Recent Activity Section ---
-    // Example: last 10 registrations and payments
-    const recentRegistrations = registrations
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      .slice(0, 5)
-      .map(
-        (reg) =>
-          `New registration: ${reg.participantName} joined ${reg.campName}`
-      );
+      // Count participants per camp
+      const campStats = camps.map((camp) => {
+        const participantCount = registrations.filter(
+          (reg) => reg.campId === camp._id.toString()
+        ).length;
+        // Calculate revenue for this camp from payments
+        const campPayments = payments.filter(
+          (payment) => payment.campId === camp._id.toString()
+        );
+        const revenue = campPayments.reduce(
+          (sum, payment) => sum + parseFloat(payment.amount || 0),
+          0
+        );
 
-    const recentPayments = payments
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      .slice(0, 5)
-      .map((pay) => `Payment received: $${pay.amount} for ${pay.campName}`);
-
-    const recentActivity = [...recentRegistrations, ...recentPayments].sort(
-      () => Math.random() - 0.5
-    );
-
-    // Count camps joined per participant
-    const participantMap = {};
-    registrations.forEach((reg) => {
-      if (!participantMap[reg.participantEmail]) {
-        participantMap[reg.participantEmail] = {
-          name: reg.participantName,
-          email: reg.participantEmail,
-          campsJoined: 0,
+        return {
+          _id: camp._id,
+          campName: camp.campName,
+          participantCount,
+          revenue,
         };
-      }
-      participantMap[reg.participantEmail].campsJoined += 1;
-    });
-    const topParticipants = Object.values(participantMap)
-      .sort((a, b) => b.campsJoined - a.campsJoined)
-      .slice(0, 5);
+      });
 
-    res.send({
-      totalOrganizedCamps: camps.length,
-      upcomingCamps: upcomingCamps.length,
-      totalParticipants: registrations.length,
-      totalRevenue,
-      topCamps,
-      recentActivity,
-      topParticipants,
-    });
-  } catch (err) {
-    console.error("Error fetching organizer stats:", err);
-    res.status(500).send({ message: "Internal Server Error" });
+      // Sort by participant count and return top 5
+      const topCamps = campStats
+        .sort((a, b) => b.participantCount - a.participantCount)
+        .slice(0, 5);
+
+      // --- Recent Activity Section ---
+      // Example: last 10 registrations and payments
+      const recentRegistrations = registrations
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 5)
+        .map(
+          (reg) =>
+            `New registration: ${reg.participantName} joined ${reg.campName}`
+        );
+
+      const recentPayments = payments
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 5)
+        .map((pay) => `Payment received: $${pay.amount} for ${pay.campName}`);
+
+      const recentActivity = [...recentRegistrations, ...recentPayments].sort(
+        () => Math.random() - 0.5
+      );
+
+      // Count camps joined per participant
+      const participantMap = {};
+      registrations.forEach((reg) => {
+        if (!participantMap[reg.participantEmail]) {
+          participantMap[reg.participantEmail] = {
+            name: reg.participantName,
+            email: reg.participantEmail,
+            campsJoined: 0,
+          };
+        }
+        participantMap[reg.participantEmail].campsJoined += 1;
+      });
+      const topParticipants = Object.values(participantMap)
+        .sort((a, b) => b.campsJoined - a.campsJoined)
+        .slice(0, 5);
+
+      res.send({
+        totalOrganizedCamps: camps.length,
+        upcomingCamps: upcomingCamps.length,
+        totalParticipants: registrations.length,
+        totalRevenue,
+        topCamps,
+        recentActivity,
+        topParticipants,
+      });
+    } catch (err) {
+      console.error("Error fetching organizer stats:", err);
+      res.status(500).send({ message: "Internal Server Error" });
+    }
   }
-});
+);
 
 // Example Express API endpoint for contact messages
 app.post("/contact-messages", async (req, res) => {
