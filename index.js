@@ -69,7 +69,7 @@ const checkRole = (role) => async (req, res, next) => {
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://medcamp-pro.web.app", "https://plantcare.shakildev.online"],
+    origin: ["http://localhost:5173", "https://medcamp-pro.web.app", "https://medcamppro.shakildev.online"],
     credentials: true,
   })
 );
