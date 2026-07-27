@@ -69,7 +69,7 @@ const checkRole = (role) => async (req, res, next) => {
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://medcamp-pro.web.app"],
+    origin: ["http://localhost:5173", "https://medcamp-pro.web.app", "https://plantcare.shakildev.online"],
     credentials: true,
   })
 );
@@ -202,6 +202,23 @@ app.get("/popular-camps", async (req, res) => {
     .toArray();
   res.send(camps);
 });
+
+    // Upcoming Camps API
+    app.get("/upcoming-camps", async (req, res) => {
+      try {
+        const today = new Date().toISOString().split("T")[0]; 
+        const upcomingCamps = await campsCollection
+          .find({
+            scheduledDate: { $gt: today },
+            status: "active",
+          })
+          .toArray();
+
+        res.send(upcomingCamps);
+      } catch (error) {
+        res.status(500).send({ message: "Error fetching upcoming camps", error });
+      }
+    });
 
 // single camp get API
 app.get("/camp-details/:id", async (req, res) => {
